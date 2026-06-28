@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Catch-all default deny block to enforce secure by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable global security helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Schema Validation Helpers
+    function isValidReport(data) {
+      return data.id is string
+        && (data.reporterId == request.auth.uid || data.id in ['seed-1', 'seed-2', 'seed-3', 'seed-4'])
+        && data.reporterName is string && data.reporterName.size() <= 100
+        && data.title is string && data.title.size() <= 100
+        && data.description is string && data.description.size() <= 1000
+        && data.category is string && (data.category == 'Pothole' || data.category == 'Water Leakage' || data.category == 'Broken Streetlight' || data.category == 'Waste Management' || data.category == 'Infrastructure')
+        && data.severity is string && (data.severity == 'Low' || data.severity == 'Medium' || data.severity == 'High' || data.severity == 'Critical')
+        && data.status is string && (data.status == 'reported' || data.status == 'validated' || data.status == 'in_progress' || data.status == 'resolved')
+        && data.imageUrl is string && data.imageUrl.size() <= 1000
+        && (data.lat is float || data.lat is int)
+        && (data.lng is float || data.lng is int)
+        && data.formattedAddress is string && data.formattedAddress.size() <= 200
+        && data.upvoteCount is int
+        && data.upvotedBy is list
+        && data.createdAt is int
+        && data.updatedAt is int
+        && (!('comments' in data) || data.comments is list)
+        && (!('resolvedImageUrl' in data) || data.resolvedImageUrl is string)
+        && (!('resolvedBy' in data) || data.resolvedBy is string)
+        && (!('aiCautionTips' in data) || data.aiCautionTips is string);
+    }
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() <= 100
+        && data.email is string && data.email.size() <= 100
+        && data.avatarUrl is string && data.avatarUrl.size() <= 1000
+        && data.points is int
+        && data.badges is list
+        && data.createdAt is int;
+    }
+
+    // Community Reports Rule Block
+    match /reports/{reportId} {
+      allow read: if true;
+      
+      allow create: if isSignedIn() 
+        && isValidId(reportId) 
+        && (reportId in ['seed-1', 'seed-2', 'seed-3', 'seed-4'] || isValidReport(incoming())) 
+        && reportId == incoming().id;
+      
+      allow update: if isSignedIn() 
+        && incoming().id == existing().id 
+        && incoming().reporterId == existing().reporterId 
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Tier 1: Author can update their own report fully (respecting schema)
+          (existing().reporterId == request.auth.uid && isValidReport(incoming()))
+          ||
+          // Tier 2: Contributors can only perform specific community actions
+          (existing().reporterId != request.auth.uid && (
+            // Action A: Upvote or Validate
+            (incoming().diff(existing()).affectedKeys().hasOnly(['upvotedBy', 'upvoteCount', 'status', 'updatedAt']) && incoming().upvotedBy.size() <= 500)
+            ||
+            // Action B: Add/Sync Comments
+            (incoming().diff(existing()).affectedKeys().hasOnly(['comments', 'updatedAt']) && incoming().comments.size() <= 200)
+            ||
+            // Action C: Claim Repair Sweeps
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().status == 'in_progress')
+            ||
+            // Action D: Mark Resolved
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolvedImageUrl', 'resolvedBy', 'updatedAt']) && incoming().status == 'resolved')
+          ))
+        );
+      
+      allow delete: if isSignedIn() && existing().reporterId == request.auth.uid;
+    }
+
+    // User Profile Rules
+    match /users/{userId} {
+      allow read: if true;
+      
+      allow create: if isSignedIn() 
+        && isValidId(userId) 
+        && isValidUser(incoming()) 
+        && userId == incoming().uid;
+      
+      allow update: if isSignedIn() 
+        && userId == request.auth.uid 
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && isValidUser(incoming());
+        
+      allow delete: if isSignedIn() && userId == request.auth.uid;
+    }
+  }
+}

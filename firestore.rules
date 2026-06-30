@@ -34,16 +34,16 @@ service cloud.firestore {
         && data.category is string && (data.category == 'Pothole' || data.category == 'Water Leakage' || data.category == 'Broken Streetlight' || data.category == 'Waste Management' || data.category == 'Infrastructure')
         && data.severity is string && (data.severity == 'Low' || data.severity == 'Medium' || data.severity == 'High' || data.severity == 'Critical')
         && data.status is string && (data.status == 'reported' || data.status == 'validated' || data.status == 'in_progress' || data.status == 'resolved')
-        && data.imageUrl is string && data.imageUrl.size() <= 1000
-        && (data.lat is float || data.lat is int)
-        && (data.lng is float || data.lng is int)
+        && data.imageUrl is string && data.imageUrl.size() <= 1000000
+        && data.lat is number
+        && data.lng is number
         && data.formattedAddress is string && data.formattedAddress.size() <= 200
-        && data.upvoteCount is int
+        && data.upvoteCount is number
         && data.upvotedBy is list
-        && data.createdAt is int
-        && data.updatedAt is int
+        && data.createdAt is number
+        && data.updatedAt is number
         && (!('comments' in data) || data.comments is list)
-        && (!('resolvedImageUrl' in data) || data.resolvedImageUrl is string)
+        && (!('resolvedImageUrl' in data) || (data.resolvedImageUrl is string && data.resolvedImageUrl.size() <= 1000000))
         && (!('resolvedBy' in data) || data.resolvedBy is string)
         && (!('aiCautionTips' in data) || data.aiCautionTips is string);
     }
@@ -52,10 +52,10 @@ service cloud.firestore {
       return data.uid == request.auth.uid
         && data.displayName is string && data.displayName.size() <= 100
         && data.email is string && data.email.size() <= 100
-        && data.avatarUrl is string && data.avatarUrl.size() <= 1000
-        && data.points is int
+        && data.avatarUrl is string && data.avatarUrl.size() <= 1000000
+        && data.points is number
         && data.badges is list
-        && data.createdAt is int;
+        && data.createdAt is number;
     }
 
     // Community Reports Rule Block

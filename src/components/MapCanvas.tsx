@@ -2,6 +2,9 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { MapPin, Navigation, Compass, Layers, AlertCircle, Sparkles, CheckCircle, ShieldAlert, Globe } from "lucide-react";
 import { Report, IssueCategory } from "../types";
 
+// In-memory cache to store reverse-geocoded addresses and avoid Nominatim API rate limits (HTTP 429)
+const geocodeCache = new Map<string, string>();
+
 interface MapCanvasProps {
   reports: Report[];
   selectedReport: Report | null;
@@ -110,29 +113,36 @@ export default function MapCanvas({
         });
       });
 
-      // Handle map click with automatic FREE reverse geocoding via Nominatim API
+      // Handle map click with automatic FREE reverse geocoding via Nominatim API and smart in-memory caching
       map.on("click", async (e: any) => {
         const { lat, lng } = e.latlng;
+        const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`; // ~11m resolution key
         let finalAddress = `Simulated Intersect at Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
 
-        try {
-          // Free, key-less real reverse geocoding
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
-            {
-              headers: {
-                "User-Agent": "CivicRadarCommunityHeroApp/1.0",
-              },
+        if (geocodeCache.has(cacheKey)) {
+          finalAddress = geocodeCache.get(cacheKey)!;
+        } else {
+          try {
+            // Free, key-less real reverse geocoding
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
+              {
+                headers: {
+                  "User-Agent": "CivicRadarCommunityHeroApp/1.0",
+                },
+              }
+            );
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.display_name) {
+                finalAddress = data.display_name;
+                // Save resolved address into cache for immediate zero-latency reuse
+                geocodeCache.set(cacheKey, finalAddress);
+              }
             }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data && data.display_name) {
-              finalAddress = data.display_name;
-            }
+          } catch (err) {
+            console.warn("Nominatim reverse geocode fallback:", err);
           }
-        } catch (err) {
-          console.warn("Nominatim reverse geocode fallback:", err);
         }
 
         onMapClick({

@@ -40,6 +40,22 @@ const PRESET_AVATARS = [
   {
     name: "John (Community Captain)",
     url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Leo (Garden Coordinator)",
+    url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Chloe (Traffic Sentry)",
+    url: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Zane (Smart Tech Expert)",
+    url: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Nisha (Urban Planner)",
+    url: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80"
   }
 ];
 
@@ -82,6 +98,7 @@ export default function SignInSignUpModal({ isOpen, onClose, onAuthSuccess }: Si
       }
 
       dbService.updateLeaderboardEntry(existingProfile);
+      dbService.saveProfile(existingProfile);
 
       setSuccess(`Welcome back, ${existingProfile.displayName}!`);
       setTimeout(() => {
@@ -165,7 +182,10 @@ export default function SignInSignUpModal({ isOpen, onClose, onAuthSuccess }: Si
           createdAt: Date.now()
         };
 
-        // Save profile to Firestore & Local Storage
+        // Save to local storage first to prevent race condition in onAuthStateChanged
+        dbService.saveProfile(newProfile);
+
+        // Save profile to Firestore
         await dbService.saveUserProfileToFirestore(newProfile);
         dbService.updateLeaderboardEntry(newProfile);
 
@@ -198,6 +218,7 @@ export default function SignInSignUpModal({ isOpen, onClose, onAuthSuccess }: Si
         }
 
         dbService.updateLeaderboardEntry(existingProfile);
+        dbService.saveProfile(existingProfile);
 
         setSuccess(`Welcome back, ${existingProfile.displayName}!`);
         setTimeout(() => {

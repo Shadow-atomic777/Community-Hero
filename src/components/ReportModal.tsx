@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { X, Upload, MapPin, Sparkles, Check, AlertTriangle, ShieldCheck, Loader2 } from "lucide-react";
-import { Report, IssueCategory, IssueSeverity } from "../types";
+import { Report, IssueCategory, IssueSeverity, UserProfile } from "../types";
 
 interface ReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Omit<Report, "id" | "createdAt" | "updatedAt" | "upvoteCount" | "upvotedBy" | "comments">) => void;
   clickedCoords: { lat: number; lng: number; address: string } | null;
+  currentUser: UserProfile;
 }
 
 // Beautiful preset high-res incident images for easy, quick browser testing
@@ -33,7 +34,41 @@ const PRESET_INCIDENTS = [
   }
 ];
 
-export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }: ReportModalProps) {
+// Robust helper to compress high-resolution images down to standard web dimensions and size
+const compressImage = (base64Str: string, maxWidth = 1200, maxQuality = 0.8): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        // Compress as jpeg with high-quality and low byte footprints
+        const compressedBase64 = canvas.toDataURL("image/jpeg", maxQuality);
+        resolve(compressedBase64);
+      } else {
+        resolve(base64Str);
+      }
+    };
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+  });
+};
+
+export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords, currentUser }: ReportModalProps) {
   const [selectedImage, setSelectedImage] = useState<string>("");
   const [address, setAddress] = useState<string>("");
   const [latitude, setLatitude] = useState<number>(37.7749);
@@ -52,6 +87,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }
   const [isAnalyzed, setIsAnalyzed] = useState<boolean>(false);
   const [isDemoAnalysis, setIsDemoAnalysis] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
 
   // Sync coords if user clicked on the map canvas
   useEffect(() => {
@@ -88,19 +124,63 @@ export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }
     triggerAiAnalysis(presetUrl);
   };
 
-  // Handle local file uploads
+  // Unified file processing with automatic client-side image compression
+  const processFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setErrorMessage("Only image files are supported.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64Url = reader.result as string;
+      setErrorMessage("");
+      setIsAnalyzed(false);
+      setIsAnalyzing(true);
+      setAnalysisStep("Compressing high-resolution asset client-side...");
+
+      try {
+        const compressedUrl = await compressImage(base64Url);
+        setSelectedImage(compressedUrl);
+        triggerAiAnalysis(compressedUrl);
+      } catch (err) {
+        console.error("Compression error, utilizing fallback raw encoding:", err);
+        setSelectedImage(base64Url);
+        triggerAiAnalysis(base64Url);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handle local file uploads via file inputs
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64Url = reader.result as string;
-        setSelectedImage(base64Url);
-        setErrorMessage("");
-        setIsAnalyzed(false);
-        triggerAiAnalysis(base64Url);
-      };
-      reader.readAsDataURL(file);
+      processFile(file);
+    }
+  };
+
+  // Handle drag over container
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!isAnalyzing) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  // Handle drag leave container
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+  };
+
+  // Handle file drop
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    if (isAnalyzing) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
     }
   };
 
@@ -169,8 +249,8 @@ export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }
     }
 
     onSubmit({
-      reporterId: "user-local-hero",
-      reporterName: "Jane Civic",
+      reporterId: currentUser.uid,
+      reporterName: currentUser.displayName,
       title: title || `${severity} ${category} Alert`,
       description: description || "No detailed description supplied.",
       category,
@@ -245,9 +325,18 @@ export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }
 
           {/* Upload Area */}
           <div className="relative">
-            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
-              selectedImage ? "border-brand-500 bg-brand-50/20" : "border-border-color hover:border-brand-400 bg-canvas-bg/50"
-            }`}>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+                isDraggingOver
+                  ? "border-brand-500 bg-brand-50/40 scale-[1.01] shadow-md"
+                  : selectedImage
+                  ? "border-brand-500 bg-brand-50/20"
+                  : "border-border-color hover:border-brand-400 bg-canvas-bg/50"
+              }`}
+            >
               <input
                 type="file"
                 id="file-uploader"
@@ -257,8 +346,10 @@ export default function ReportModal({ isOpen, onClose, onSubmit, clickedCoords }
                 className="hidden"
               />
               <label htmlFor="file-uploader" className="cursor-pointer flex flex-col items-center gap-2">
-                <Upload className="w-8 h-8 text-text-muted hover:text-text-main transition-colors" />
-                <span className="text-xs font-bold text-text-main">Drag & Drop or Click to Upload custom image</span>
+                <Upload className={`w-8 h-8 transition-transform duration-200 ${isDraggingOver ? "scale-110 text-brand-600" : "text-text-muted hover:text-text-main"}`} />
+                <span className="text-xs font-bold text-text-main">
+                  {isDraggingOver ? "Drop file now!" : "Drag & Drop or Click to Upload custom image"}
+                </span>
                 <span className="text-[10px] text-text-muted">Supports JPEG, PNG up to 10MB</span>
               </label>
             </div>

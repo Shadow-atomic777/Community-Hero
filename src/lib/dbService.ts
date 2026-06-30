@@ -324,17 +324,21 @@ export const dbService = {
       }
     }
     const defaultProfile: UserProfile = {
-      uid: "user-local-hero",
-      displayName: "Jane Civic",
-      email: "jane.hero@civic.org",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
-      points: 25,
-      badges: ["Civic Sentinel"],
+      uid: "user-local-guest",
+      displayName: "Local Guest",
+      email: "",
+      avatarUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
+      points: 0,
+      badges: [],
       createdAt: Date.now()
     };
     this.saveProfile(defaultProfile);
     this.updateLeaderboardEntry(defaultProfile);
     return defaultProfile;
+  },
+
+  clearProfile(): void {
+    localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
   },
 
   saveProfile(profile: UserProfile): void {
@@ -437,7 +441,7 @@ export const dbService = {
   },
 
   // --- FIRESTORE SUBSCRIPTIONS & OPERATIONS ---
-  subscribeReports(callback: (reports: Report[]) => void): () => void {
+  subscribeReports(callback: (reports: Report[]) => void, centerLat?: number, centerLng?: number): () => void {
     const q = query(collection(db, "reports"), orderBy("createdAt", "desc"));
     return onSnapshot(q, (snapshot) => {
       const reports: Report[] = [];
@@ -450,7 +454,7 @@ export const dbService = {
         callback(reports);
       } else {
         // If Firestore is completely empty (e.g., initial setup), let's seed it!
-        const initial = getInitialReports();
+        const initial = getInitialReports(centerLat, centerLng);
         if (auth.currentUser) {
           const batch = writeBatch(db);
           initial.forEach(report => {
@@ -468,7 +472,38 @@ export const dbService = {
     }, (error) => {
       console.warn("Firestore subscription failed, falling back to local storage:", error);
       // fallback
-      callback(this.getReports());
+      callback(this.getReports(centerLat, centerLng));
+    });
+  },
+
+  subscribeLeaderboard(callback: (users: LeaderboardUser[]) => void): () => void {
+    const q = query(collection(db, "users"), orderBy("points", "desc"));
+    return onSnapshot(q, (snapshot) => {
+      const list: LeaderboardUser[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() as UserProfile;
+        list.push({
+          uid: data.uid,
+          displayName: data.displayName,
+          avatarUrl: data.avatarUrl,
+          points: data.points,
+          badgesCount: data.badges ? data.badges.length : 0
+        });
+      });
+
+      if (list.length > 0) {
+        const mappedList = list.map((user, index) => ({
+          ...user,
+          rank: index + 1
+        }));
+        localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(mappedList));
+        callback(mappedList);
+      } else {
+        callback(this.getLeaderboard());
+      }
+    }, (error) => {
+      console.warn("Firestore leaderboard subscription failed, falling back to local storage:", error);
+      callback(this.getLeaderboard());
     });
   },
 
@@ -497,6 +532,39 @@ export const dbService = {
       localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(profile));
     } catch (e) {
       console.error("Error saving user profile to Firestore:", e);
+    }
+  },
+
+  async syncLocalReportsToFirestore(): Promise<void> {
+    if (!auth.currentUser) return;
+    const raw = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
+    if (!raw) return;
+
+    try {
+      const localReports: Report[] = JSON.parse(raw);
+      // Keep only locally-added reports (not seed reports, i.e. starts with 'report-')
+      const localOnly = localReports.filter(r => r.id && r.id.startsWith("report-"));
+
+      if (localOnly.length > 0) {
+        const batch = writeBatch(db);
+        const currentUser = auth.currentUser;
+        
+        localOnly.forEach((report) => {
+          // If the report was created with the fallback guest ID, assign it to the logged in user
+          const updatedReport: Report = {
+            ...report,
+            reporterId: report.reporterId === "user-local-hero" ? currentUser.uid : report.reporterId,
+            reporterName: report.reporterId === "user-local-hero" && currentUser.displayName ? currentUser.displayName : report.reporterName,
+          };
+          const docRef = doc(db, "reports", report.id);
+          batch.set(docRef, updatedReport);
+        });
+
+        await batch.commit();
+        console.log(`Successfully synced ${localOnly.length} local reports to Firestore!`);
+      }
+    } catch (e) {
+      console.error("Failed to sync local reports to Firestore:", e);
     }
   },
 

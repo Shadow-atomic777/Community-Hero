@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, User, Mail, Sparkles } from "lucide-react";
 
 interface ProfileEditModalProps {
@@ -32,6 +32,22 @@ const PRESET_AVATARS = [
   {
     name: "John (Community Captain)",
     url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Leo (Garden Coordinator)",
+    url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Chloe (Traffic Sentry)",
+    url: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Zane (Smart Tech Expert)",
+    url: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=150&q=80"
+  },
+  {
+    name: "Nisha (Urban Planner)",
+    url: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80"
   }
 ];
 
@@ -43,6 +59,20 @@ export default function ProfileEditModal({ isOpen, onClose, userProfile, onSave 
   const [useCustomAvatar, setUseCustomAvatar] = useState(
     !PRESET_AVATARS.some((preset) => preset.url === userProfile.avatarUrl)
   );
+
+  // Keep state synchronized with parent userProfile whenever modal opens or profile changes
+  useEffect(() => {
+    if (isOpen) {
+      setDisplayName(userProfile.displayName || "");
+      setEmail(userProfile.email || "");
+      setSelectedAvatar(userProfile.avatarUrl || PRESET_AVATARS[0].url);
+      const isCustom = !PRESET_AVATARS.some((preset) => preset.url === userProfile.avatarUrl);
+      setUseCustomAvatar(isCustom);
+      if (isCustom) {
+        setCustomAvatarUrl(userProfile.avatarUrl || "");
+      }
+    }
+  }, [isOpen, userProfile]);
 
   if (!isOpen) return null;
 

@@ -39,6 +39,19 @@ import SignInSignUpModal from "./components/SignInSignUpModal";
 import { auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
+function formatTimeAgo(timestamp: string | number): string {
+  const ts = typeof timestamp === "string" ? parseInt(timestamp, 10) : timestamp;
+  if (!ts || isNaN(ts)) return "Just now";
+  const diff = Date.now() - ts;
+  if (diff < 60000) return "Just now";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<"radar" | "feed" | "analytics" | "leaderboard">("feed");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -93,41 +106,124 @@ export default function App() {
   // Map focus coordinates (centered on SF Civic Center by default)
   const [mapCenter, setMapCenter] = useState({ lat: 37.7749, lng: -122.4194 });
 
-  // Social feed activities list state
-  const [activities, setActivities] = useState<Array<{ id: string; user: string; avatar: string; action: string; target: string; time: string }>>([
-    {
-      id: "act-1",
-      user: "Sarah Jenkins",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-      action: "verified and upvoted",
-      target: "Market St. Pothole",
-      time: "2m ago"
-    },
-    {
-      id: "act-2",
-      user: "Marcus Chen",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-      action: "volunteered for",
-      target: "Broken Streetlight on 5th Ave",
-      time: "15m ago"
-    },
-    {
-      id: "act-3",
-      user: "Elena Rostova",
-      avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
+  // Dynamic Live Activity Stream Memo
+  const activities = React.useMemo(() => {
+    const list: Array<{ id: string; user: string; avatar: string; action: string; target: string; time: string; timestamp: number }> = [];
+
+    // Seed initial/mock timeline items so there is always activity present
+    list.push({
+      id: "act-init-1",
+      user: "Sarah Connor",
+      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
       action: "unlocked badge",
-      target: "Pothole Patrol Level 2",
-      time: "1h ago"
-    },
-    {
-      id: "act-4",
-      user: "David Miller",
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-      action: "resolved & closed",
-      target: "Water Leakage on Fulton St",
-      time: "3h ago"
-    }
-  ]);
+      target: "Civic Sentinel Level 3",
+      time: "1d ago",
+      timestamp: Date.now() - 24 * 60 * 60 * 1000
+    });
+    list.push({
+      id: "act-init-2",
+      user: "Marcus Wright",
+      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
+      action: "verified and upvoted",
+      target: "Hazardous Pothole near Crosswalk",
+      time: "12h ago",
+      timestamp: Date.now() - 12 * 60 * 60 * 1000
+    });
+
+    reports.forEach((report) => {
+      // Determine reporter avatar
+      let reporterAvatar = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80";
+      if (report.reporterId === "ai-system") {
+        reporterAvatar = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=150&q=80";
+      } else if (report.reporterId === userProfile.uid) {
+        reporterAvatar = userProfile.avatarUrl;
+      } else {
+        const lbMatch = leaderboard.find(u => u.uid === report.reporterId);
+        if (lbMatch) {
+          reporterAvatar = lbMatch.avatarUrl;
+        } else {
+          const hash = report.reporterId.charCodeAt(0) % 5;
+          const fallbacks = [
+            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
+            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
+            "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
+            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=150&q=80",
+            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"
+          ];
+          reporterAvatar = fallbacks[hash];
+        }
+      }
+
+      // 1. Report Creation Activity
+      list.push({
+        id: `report-act-${report.id}`,
+        user: report.reporterName,
+        avatar: reporterAvatar,
+        action: "reported new hazard",
+        target: report.title,
+        time: formatTimeAgo(report.createdAt),
+        timestamp: Number(report.createdAt)
+      });
+
+      // 2. Upvote Validation Threshold
+      if (report.upvoteCount >= 3) {
+        list.push({
+          id: `val-act-${report.id}`,
+          user: "The Community",
+          avatar: "https://images.unsplash.com/photo-1582213782179-e0d53f98f2ca?auto=format&fit=crop&w=150&q=80",
+          action: "verified and validated",
+          target: report.title,
+          time: formatTimeAgo(report.updatedAt),
+          timestamp: Number(report.updatedAt) - 1000
+        });
+      }
+
+      // 3. Claiming Sweeps
+      if (report.status === "in_progress") {
+        list.push({
+          id: `claim-act-${report.id}`,
+          user: "A Volunteer Hero",
+          avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+          action: "volunteered for",
+          target: report.title,
+          time: formatTimeAgo(report.updatedAt),
+          timestamp: Number(report.updatedAt)
+        });
+      }
+
+      // 4. Resolution Action
+      if (report.status === "resolved") {
+        list.push({
+          id: `res-act-${report.id}`,
+          user: report.resolvedBy || "A Civic Hero",
+          avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+          action: "resolved & closed",
+          target: report.title,
+          time: formatTimeAgo(report.updatedAt),
+          timestamp: Number(report.updatedAt)
+        });
+      }
+
+      // 5. Comments Activity
+      if (report.comments && report.comments.length > 0) {
+        report.comments.forEach((c) => {
+          list.push({
+            id: `comment-act-${c.id}`,
+            user: c.authorName,
+            avatar: c.authorAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
+            action: "commented on",
+            target: report.title,
+            time: formatTimeAgo(c.createdAt),
+            timestamp: Number(c.createdAt)
+          });
+        });
+      }
+    });
+
+    // Sort by timestamp descending
+    list.sort((a, b) => b.timestamp - a.timestamp);
+    return list;
+  }, [reports, userProfile, leaderboard]);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -137,28 +233,34 @@ export default function App() {
         const profile = await dbService.fetchUserProfileFromFirestore(user.uid);
         if (profile) {
           setUserProfile(profile);
+          dbService.saveProfile(profile);
         } else {
           const localProfile = dbService.getOrCreateProfile();
           if (localProfile && localProfile.uid === user.uid) {
             await dbService.saveUserProfileToFirestore(localProfile);
             setUserProfile(localProfile);
+            dbService.saveProfile(localProfile);
           } else {
             const syncedProfile = {
               ...localProfile,
               uid: user.uid,
-              displayName: user.displayName || user.email?.split("@")[0] || localProfile.displayName,
-              email: user.email || localProfile.email,
-              avatarUrl: user.photoURL || localProfile.avatarUrl,
+              displayName: user.displayName || user.email?.split("@")[0] || "Hero Citizen",
+              email: user.email || "hero@civic.org",
+              avatarUrl: user.photoURL || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
               points: localProfile.points > 25 ? localProfile.points : 50,
               badges: localProfile.badges.length > 0 ? localProfile.badges : ["Civic Pioneer"],
               createdAt: localProfile.createdAt || Date.now()
             };
             await dbService.saveUserProfileToFirestore(syncedProfile);
             setUserProfile(syncedProfile);
+            dbService.saveProfile(syncedProfile);
           }
         }
         const fbLeaderboard = await dbService.fetchLeaderboardFromFirestore();
         setLeaderboard(fbLeaderboard);
+        
+        // Lazy-sync local reports and points to Firestore
+        dbService.syncLocalReportsToFirestore().catch(e => console.error("Sync reports failed:", e));
       } else {
         const isSandbox = localStorage.getItem("sandbox_authenticated") === "true";
         if (isSandbox) {
@@ -180,9 +282,17 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = dbService.subscribeReports((syncedReports) => {
       setReports(syncedReports);
+    }, mapCenter.lat, mapCenter.lng);
+    return () => unsubscribe();
+  }, [isAuthenticated, mapCenter.lat, mapCenter.lng]);
+
+  // Subscribe to real-time leaderboard in Firestore
+  useEffect(() => {
+    const unsubscribe = dbService.subscribeLeaderboard((syncedLeaderboard) => {
+      setLeaderboard(syncedLeaderboard);
     });
     return () => unsubscribe();
-  }, []);
+  }, [isAuthenticated]);
 
   // Load records and seed based on user's current GPS geolocation
   useEffect(() => {
@@ -192,19 +302,11 @@ export default function App() {
           const userLat = position.coords.latitude;
           const userLng = position.coords.longitude;
           setMapCenter({ lat: userLat, lng: userLng });
-          // Load seeded reports around user's location
-          const loadedReports = dbService.getReports(userLat, userLng);
-          setReports(loadedReports);
         },
         (error) => {
           console.log("Geolocation permission denied, using default SF center.", error);
-          const loadedReports = dbService.getReports(37.7749, -122.4194);
-          setReports(loadedReports);
         }
       );
-    } else {
-      const loadedReports = dbService.getReports(37.7749, -122.4194);
-      setReports(loadedReports);
     }
     setLeaderboard(dbService.getLeaderboard());
   }, []);
@@ -217,15 +319,7 @@ export default function App() {
   };
 
   const logActivity = (action: string, target: string) => {
-    const newAct = {
-      id: `act-${Date.now()}`,
-      user: userProfile.displayName,
-      avatar: userProfile.avatarUrl,
-      action,
-      target,
-      time: "Just now"
-    };
-    setActivities((prev) => [newAct, ...prev]);
+    // Handled dynamically in useMemo!
   };
 
   const handleReportCreated = (newReportData: Omit<Report, "id" | "createdAt" | "updatedAt" | "upvoteCount" | "upvotedBy" | "comments">) => {
@@ -291,6 +385,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       localStorage.removeItem("sandbox_authenticated");
+      dbService.clearProfile();
       await signOut(auth);
       setIsAuthenticated(false);
       setUserProfile(dbService.getOrCreateProfile());
@@ -298,6 +393,7 @@ export default function App() {
       triggerToast("Logged out of Civic Gateway.", 0);
     } catch (e) {
       console.error("Logout error:", e);
+      dbService.clearProfile();
       setIsAuthenticated(false);
       setUserProfile(dbService.getOrCreateProfile());
       setLeaderboard(dbService.getLeaderboard());
@@ -305,6 +401,7 @@ export default function App() {
   };
 
   const handleAuthSuccess = async (profile: UserProfile) => {
+    dbService.saveProfile(profile);
     setUserProfile(profile);
     setIsAuthenticated(true);
     // Refresh leaderboard
@@ -347,6 +444,9 @@ export default function App() {
   const criticalCount = reports.filter((r) => r.status !== "resolved" && (r.severity === "Critical" || r.severity === "High")).length;
   const totalUpvotesCount = reports.reduce((acc, curr) => acc + (curr.upvoteCount || 0), 0);
   const resolvedCount = reports.filter((r) => r.status === "resolved").length;
+
+  const potholeQuestCount = Math.min(reports.filter(r => r.category === "Pothole").length, 5);
+  const potholeQuestPercent = (potholeQuestCount / 5) * 100;
 
   const currentLevel = Math.floor(userProfile.points / 50) + 1;
   const pointsForNextLevel = currentLevel * 50;
@@ -640,7 +740,8 @@ export default function App() {
                 <img
                   src={userProfile.avatarUrl}
                   alt={userProfile.displayName}
-                  className="w-8.5 h-8.5 rounded-full object-cover border border-border-color shadow-sm"
+                  className="w-9 h-9 rounded-full object-cover border border-brand-300 dark:border-brand-500 shadow-sm p-0.5 bg-white dark:bg-slate-900 transition-transform duration-200 hover:scale-105"
+                  id="header-profile-avatar"
                 />
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border border-white rounded-full" />
               </button>
@@ -773,10 +874,10 @@ export default function App() {
                       <div className="space-y-1.5 pt-1">
                         <div className="flex justify-between text-[9px] font-bold text-text-muted">
                           <span>Progress</span>
-                          <span>3 / 5 Reports</span>
+                          <span>{potholeQuestCount} / 5 Reports</span>
                         </div>
                         <div className="h-1.5 bg-canvas-bg rounded-full overflow-hidden border border-border-color">
-                          <div className="h-full bg-brand-500 w-[60%]"></div>
+                          <div className="h-full bg-brand-500 transition-all duration-500" style={{ width: `${potholeQuestPercent}%` }}></div>
                         </div>
                       </div>
                     </div>
@@ -940,6 +1041,7 @@ export default function App() {
         onClose={() => setIsReportModalOpen(false)}
         onSubmit={handleReportCreated}
         clickedCoords={clickedCoords}
+        currentUser={userProfile}
       />
 
       {/* PROFILE SELECTION MODAL */}

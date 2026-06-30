@@ -65,6 +65,7 @@ export default function ActiveFeed({
   const [newCommentTexts, setNewCommentTexts] = useState<Record<string, string>>({});
   const [resolvingReportId, setResolvingReportId] = useState<string | null>(null);
   const [resolvedImgUrl, setResolvedImgUrl] = useState(RESOLVED_PRESETS[0].url);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
 
   // Filter reports
   const filteredReports = reports.filter((r) => {
@@ -120,7 +121,16 @@ export default function ActiveFeed({
   };
 
   const triggerResolutionSubmit = (reportId: string) => {
-    onResolve(reportId, resolvedImgUrl);
+    const trimmedUrl = resolvedImgUrl.trim();
+    const urlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?.*$/i;
+    
+    if (!trimmedUrl || !urlPattern.test(trimmedUrl)) {
+      setResolutionError("Please select a preset image or enter a valid web URL starting with http:// or https://");
+      return;
+    }
+    
+    setResolutionError(null);
+    onResolve(reportId, trimmedUrl);
     setResolvingReportId(null);
   };
 
@@ -345,7 +355,10 @@ export default function ActiveFeed({
                           <button
                             key={preset.url}
                             type="button"
-                            onClick={() => setResolvedImgUrl(preset.url)}
+                            onClick={() => {
+                              setResolvedImgUrl(preset.url);
+                              setResolutionError(null);
+                            }}
                             className={`relative rounded-xl overflow-hidden aspect-video border-2 transition-all p-0.5 bg-white ${
                               resolvedImgUrl === preset.url
                                 ? "border-brand-500 scale-[1.03] shadow-sm"
@@ -368,10 +381,19 @@ export default function ActiveFeed({
                         type="url"
                         placeholder="https://images.unsplash.com/photo-..."
                         value={resolvedImgUrl}
-                        onChange={(e) => setResolvedImgUrl(e.target.value)}
+                        onChange={(e) => {
+                          setResolvedImgUrl(e.target.value);
+                          setResolutionError(null);
+                        }}
                         className="w-full text-[11px] font-semibold rounded-xl border border-brand-200/80 px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all"
                       />
                     </div>
+
+                    {resolutionError && (
+                      <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold">
+                        ⚠️ {resolutionError}
+                      </div>
+                    )}
 
                     <div className="flex gap-2 pt-1 border-t border-brand-100">
                       <button

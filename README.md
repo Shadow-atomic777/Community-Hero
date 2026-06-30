@@ -36,7 +36,13 @@ By combining interactive mapping, real-time Firestore database synchronization, 
 ### 5. Gamification & Citizen Profile
 *   **Points Ledger**: Citizens earn points for helping their city (+10 for reporting, +2 for verifying, +5 for helpful comments, +50 for resolving).
 *   **Civic Badges**: Collectable milestones such as `Pothole Ranger`, `Eco Warrior`, `Beacon of Light`, and `Civic Sentinel`.
-*   **Local Leaderboard**: Live, real-time sorted ranking of municipal heroes.
+*   **Real-time Leaderboard**: Features a live-sorted, real-time Firestore database subscription ranking community heroes dynamically as points are earned across the entire platform.
+*   **Normal Sign-Out & Guest Transition**: Implements clear profile partitioning where signing out safely purges locally cached credentials and gracefully resets back to a fresh "Local Guest" state, preventing any profile leakage across different account sessions.
+
+### 6. Interactive Drag & Drop File Upload
+*   **Aesthetic Drop Zone**: Supports drag-and-drop and click-to-upload custom high-resolution images, with interactive scale-up transitions, hover/drag states, and spring animations.
+*   **Client-Side Asset Compression**: Automatically compresses uploaded photos client-side to optimize bandwidth and stay within real-time payload thresholds before transmission.
+*   **Hardened Cloud Validation Security Rules**: Adjusted Firestore Rules to allow high-capacity base64 compressed strings (up to 1MB) for `imageUrl`, `resolvedImageUrl`, and `avatarUrl` fields while strictly sanitizing other metadata formats.
 
 ---
 
